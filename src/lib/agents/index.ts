@@ -9,7 +9,10 @@ export { UniversalAgent } from './universal-agent'
 export { CollectionOrchestrator, type OrchestrationResult } from './collection-orchestrator'
 
 // Re-export the main interface for backward compatibility
-export type { HistoricalArticle as HistoricalCollectorResult }
+export type { HistoricalArticle as HistoricalCollectorResult } from './base-agent'
+
+// Import for local use
+import { CollectionOrchestrator } from './collection-orchestrator'
 
 // Main entry point for historical article collection
 export const createCollectionOrchestrator = () => new CollectionOrchestrator() 

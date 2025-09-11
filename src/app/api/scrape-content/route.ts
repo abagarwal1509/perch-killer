@@ -29,8 +29,7 @@ export async function GET(request: NextRequest) {
         'Connection': 'keep-alive',
         'Upgrade-Insecure-Requests': '1',
         'Cache-Control': 'no-cache'
-      },
-      timeout: 15000 // 15 second timeout
+      }
     })
 
     if (!response.ok) {

@@ -122,7 +122,7 @@ export async function POST(request: NextRequest) {
               .update({
                 author_id: author.id,
                 is_enhanced: true,
-                content_length: (collectedArticle.content || '').length
+                content_length: ((collectedArticle as any).content || '').length
               })
               .eq('id', existingArticle.id)
             
@@ -131,7 +131,7 @@ export async function POST(request: NextRequest) {
           }
         } else {
           // Add new article (bypass auth for demo)
-          const readTime = estimateReadTime(collectedArticle.content || collectedArticle.description || '')
+          const readTime = estimateReadTime((collectedArticle as any).content || collectedArticle.description || '')
           
           const { error: insertError } = await db.supabase
             .from('articles')
@@ -140,17 +140,17 @@ export async function POST(request: NextRequest) {
               author_id: author.id,
               title: collectedArticle.title,
               description: collectedArticle.description,
-              content: collectedArticle.content,
+              content: (collectedArticle as any).content,
               url: collectedArticle.url,
               author: collectedArticle.author,
               published_at: collectedArticle.publishedDate,
-              image_url: collectedArticle.imageUrl,
+              image_url: (collectedArticle as any).imageUrl,
               categories: [],
               read_time: readTime,
               is_read: false,
               is_bookmarked: false,
-              is_enhanced: !!collectedArticle.content,
-              content_length: (collectedArticle.content || '').length,
+              is_enhanced: !!(collectedArticle as any).content,
+              content_length: ((collectedArticle as any).content || '').length,
               ai_analysis: {},
               key_quotes: [],
               main_themes: [],

@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
     
     const result = await Promise.race([
       orchestrator.collectHistoricalArticles(url),
-      new Promise((_, reject) => 
+      new Promise<never>((_, reject) => 
         setTimeout(() => {
           console.error('⏰ Historical collection timed out after 60 seconds')
           reject(new Error('Historical collection timed out after 60 seconds'))

@@ -70,7 +70,11 @@ export async function POST(request: NextRequest) {
     await supabase.from('articles').delete().like('url', '%blog.samaltman.com%')
     await supabase.from('sources').delete().like('url', '%blog.samaltman.com%')
 
-    let results = {
+    let results: {
+      sources: any[],
+      articles: any[],
+      errors: string[]
+    } = {
       sources: [],
       articles: [],
       errors: []
