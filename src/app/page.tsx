@@ -1,103 +1,141 @@
-import Image from "next/image";
+'use client'
 
-export default function Home() {
+import { useEffect, useState } from 'react'
+import { createSupabaseClient } from '@/lib/supabase'
+import { useRouter } from 'next/navigation'
+import { Button } from '@/components/ui/button'
+
+export default function LandingPage() {
+  const [loading, setLoading] = useState(false)
+  const router = useRouter()
+  const supabase = createSupabaseClient()
+
+  useEffect(() => {
+    const checkUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        router.push('/dashboard')
+      }
+    }
+    checkUser()
+  }, [router, supabase.auth])
+
+  const handleGoogleSignIn = async () => {
+    setLoading(true)
+    try {
+      await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/dashboard`
+        }
+      })
+    } catch (error) {
+      console.error('Error signing in:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm/6 text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-[family-name:var(--font-geist-mono)] font-semibold">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
-
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+    <div className="min-h-screen bg-background">
+      {/* Header */}
+      <header className="border-b border-border/40">
+        <div className="container mx-auto px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center">
+              <span className="text-primary-foreground font-bold text-sm">B</span>
+            </div>
+            <span className="text-xl font-semibold">BlogHub</span>
+          </div>
+          <nav className="hidden md:flex items-center space-x-8">
+            <a href="#" className="text-sm text-muted-foreground hover:text-foreground">Our story</a>
+            <a href="#" className="text-sm text-muted-foreground hover:text-foreground">Membership</a>
+            <a href="#" className="text-sm text-muted-foreground hover:text-foreground">Write</a>
+            <Button 
+              onClick={handleGoogleSignIn}
+              disabled={loading}
+              variant="default"
+              className="rounded-full"
+            >
+              {loading ? 'Signing in...' : 'Get started'}
+            </Button>
+          </nav>
         </div>
+      </header>
+
+      {/* Hero Section */}
+      <main className="container mx-auto px-6">
+        <div className="flex flex-col lg:flex-row items-center min-h-[80vh]">
+          {/* Left Content */}
+          <div className="flex-1 max-w-xl lg:pr-16">
+            <h1 className="text-6xl lg:text-7xl font-serif leading-tight mb-8">
+              Human
+              <br />
+              stories & ideas
+            </h1>
+            <p className="text-xl text-muted-foreground mb-12 leading-relaxed">
+              A place to read, write, and deepen your understanding of the blogs you love most.
+            </p>
+            <Button 
+              onClick={handleGoogleSignIn}
+              disabled={loading}
+              size="lg"
+              className="rounded-full text-lg px-8 py-6"
+            >
+              {loading ? 'Signing in...' : 'Start reading'}
+            </Button>
+          </div>
+
+          {/* Right Illustration */}
+          <div className="flex-1 flex justify-center lg:justify-end mt-12 lg:mt-0">
+            <div className="relative">
+              {/* Simple geometric illustration inspired by Medium */}
+              <div className="w-80 h-80 relative">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-green-400 rounded-full opacity-80"></div>
+                <div className="absolute top-16 right-16 w-24 h-24 bg-green-500 rounded-full"></div>
+                <div className="absolute top-8 right-8 w-16 h-16 bg-green-600 rounded-full"></div>
+                <div className="absolute bottom-0 left-0 w-40 h-20 bg-green-300 rounded-lg transform rotate-12"></div>
+                <div className="absolute bottom-8 left-8 w-32 h-16 bg-green-400 rounded-lg transform -rotate-6"></div>
+                {/* Scattered dots */}
+                <div className="absolute top-24 left-12 w-2 h-2 bg-foreground rounded-full"></div>
+                <div className="absolute top-32 left-24 w-2 h-2 bg-foreground rounded-full"></div>
+                <div className="absolute bottom-32 right-12 w-2 h-2 bg-foreground rounded-full"></div>
+                <div className="absolute bottom-24 right-24 w-2 h-2 bg-foreground rounded-full"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Sign In Modal Style - Welcome Back */}
+        {loading && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-background rounded-xl p-8 max-w-md w-full mx-4">
+              <div className="text-center">
+                <h2 className="text-2xl font-semibold mb-6">Welcome back.</h2>
+                <div className="animate-spin w-8 h-8 border-2 border-primary border-t-transparent rounded-full mx-auto"></div>
+                <p className="text-sm text-muted-foreground mt-4">Signing you in...</p>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
+
+      {/* Footer */}
+      <footer className="border-t border-border/40 mt-16">
+        <div className="container mx-auto px-6 py-8">
+          <div className="flex flex-wrap items-center justify-center space-x-6 text-sm text-muted-foreground">
+            <a href="#" className="hover:text-foreground">Help</a>
+            <a href="#" className="hover:text-foreground">Status</a>
+            <a href="#" className="hover:text-foreground">About</a>
+            <a href="#" className="hover:text-foreground">Careers</a>
+            <a href="#" className="hover:text-foreground">Press</a>
+            <a href="#" className="hover:text-foreground">Blog</a>
+            <a href="#" className="hover:text-foreground">Privacy</a>
+            <a href="#" className="hover:text-foreground">Terms</a>
+            <a href="#" className="hover:text-foreground">Text to speech</a>
+          </div>
+        </div>
       </footer>
     </div>
-  );
+  )
 }
