@@ -237,7 +237,7 @@ export function Sidebar({ user }: SidebarProps) {
             <div className="w-8 h-8 bg-sidebar-primary rounded-full flex items-center justify-center">
               <span className="text-sidebar-primary-foreground font-bold text-sm">B</span>
             </div>
-            <span className="text-xl font-semibold text-sidebar-foreground">Perch Killer</span>
+            <span className="text-xl font-semibold text-sidebar-foreground">BlogHub</span>
           </div>
         </div>
 

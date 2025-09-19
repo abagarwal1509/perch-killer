@@ -23,10 +23,10 @@ export default function LandingPage() {
   const handleGoogleSignIn = async () => {
     setLoading(true)
     try {
-      await supabase.auth.signInWithOAuth({
+      const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${window.location.origin}/dashboard`
+          redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/dashboard`
         }
       })
     } catch (error) {

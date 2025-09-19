@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Perch Killer",
+  title: "BlogHub",
   description: "A world-class reading experience",
 };
 
