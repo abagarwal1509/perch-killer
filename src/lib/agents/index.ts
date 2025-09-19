@@ -1,6 +1,7 @@
 export { BaseAgent, type HistoricalArticle, type AgentResult, type PlatformIndicators } from './base-agent'
 export { GhostAgent } from './ghost-agent'
 export { PosthavenAgent } from './posthaven-agent'
+export { VCCircleAgent } from './vccircle-agent'
 export { WordPressAgent } from './wordpress-agent'
 export { SubstackAgent } from './substack-agent'
 export { MediumAgent } from './medium-agent'

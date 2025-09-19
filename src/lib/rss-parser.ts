@@ -69,6 +69,19 @@ export class RSSParser {
         
         if (response.ok) {
           const content = await response.text()
+          
+          // Check if this is a JSON response from our specialized agent handling
+          try {
+            const jsonResponse = JSON.parse(content)
+            if (jsonResponse.success && jsonResponse.message && jsonResponse.note) {
+              console.log(`✅ Found specialized agent support for: ${candidateUrl}`)
+              console.log(`📋 Message: ${jsonResponse.message}`)
+              return candidateUrl
+            }
+          } catch {
+            // Not JSON, continue with normal feed validation
+          }
+          
           const isValidFeed = this.looksLikeFeed(content)
           
           console.log(`📝 Content length: ${content.length}, Is valid feed: ${isValidFeed}`)
@@ -202,6 +215,25 @@ export class RSSParser {
     
     if (!xmlText || xmlText.trim().length === 0) {
       throw new Error('Empty response from RSS feed')
+    }
+    
+    // Check if this is a JSON response from our specialized agent handling
+    try {
+      const jsonResponse = JSON.parse(xmlText)
+      if (jsonResponse.success && jsonResponse.message && jsonResponse.note) {
+        // This is a specialized agent website - return a placeholder feed structure
+        // The actual content will be handled by the agent system
+        const domain = new URL(feedUrl).hostname
+        return {
+          title: domain.replace('www.', '').replace('.com', '').charAt(0).toUpperCase() + 
+                 domain.replace('www.', '').replace('.com', '').slice(1) + ' (Specialized Agent)',
+          description: jsonResponse.message,
+          link: feedUrl,
+          items: [] // Agent system will populate content later
+        }
+      }
+    } catch {
+      // Not JSON, continue with normal XML parsing
     }
     
     const parser = new DOMParser()

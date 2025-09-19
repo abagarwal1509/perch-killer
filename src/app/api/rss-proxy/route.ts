@@ -42,6 +42,21 @@ export async function GET(request: NextRequest) {
 
     const xmlContent = await response.text()
 
+    // Special handling for Next.js websites like VCCircle that return HTML instead of RSS
+    const domain = new URL(url).hostname
+    if ((domain.includes('vccircle.com') || xmlContent.includes('__NEXT_DATA__')) && 
+        contentType.includes('text/html')) {
+      // This is a Next.js website that our specialized agent can handle
+      return NextResponse.json(
+        { 
+          success: true,
+          message: 'This website uses a modern framework that our specialized agents can extract content from.',
+          note: 'RSS validation bypassed for Next.js websites with specialized agent support.'
+        },
+        { status: 200 }
+      )
+    }
+
     // Basic validation - check if it looks like XML
     if (!xmlContent.trim().startsWith('<')) {
       return NextResponse.json(

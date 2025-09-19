@@ -1,21 +1,19 @@
 'use client'
 
-import { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
-import { createSupabaseClient } from '@/lib/supabase'
-import { Button } from '@/components/ui/button'
 import { 
-  Plus, 
-  Compass, 
-  Link as LinkIcon, 
-  User,
-  LogOut,
-  ChevronDown,
-  RefreshCw
+  Home, Plus, Users, Settings, LogOut, Search, BookOpen, 
+  Link as LinkIcon, Rss, RefreshCw, X, AlertCircle, CheckCircle,
+  Loader2, Compass, User, ChevronDown
 } from 'lucide-react'
+import { Button } from './ui/button'
+import { createSupabaseClient } from '@/lib/supabase'
+import { DatabaseService } from '@/lib/database'
+import { RefreshService, type RefreshProgress } from '@/lib/refresh-service'
+import { QuickRefreshService, type QuickRefreshProgress } from '@/lib/quick-refresh-service'
 import { cn } from '@/lib/utils'
 import { RSSParser } from '@/lib/rss-parser'
-import { DatabaseService } from '@/lib/database'
 
 interface SidebarProps {
   user: any
@@ -36,7 +34,7 @@ const navigationItems = [
   },
   {
     name: 'Authors',
-    icon: User,
+    icon: Users,
     href: '/dashboard/authors',
     action: null
   },
@@ -45,6 +43,18 @@ const navigationItems = [
     icon: LinkIcon,
     href: '/dashboard/connect',
     action: null
+  },
+  {
+    name: 'Quick Refresh All',
+    icon: RefreshCw,
+    href: '#',
+    action: 'quick-refresh-all'
+  },
+  {
+    name: 'Archive Refresh All',
+    icon: BookOpen,
+    href: '#',
+    action: 'archive-refresh-all'
   },
 ]
 
@@ -58,6 +68,10 @@ export function Sidebar({ user }: SidebarProps) {
   const router = useRouter()
   const pathname = usePathname()
   const supabase = createSupabaseClient()
+  const [refreshing, setRefreshing] = useState(false)
+  const [refreshProgress, setRefreshProgress] = useState<RefreshProgress | null>(null)
+  const [quickRefreshing, setQuickRefreshing] = useState(false)
+  const [quickRefreshProgress, setQuickRefreshProgress] = useState<QuickRefreshProgress | null>(null)
 
   const handleSignOut = async () => {
     await supabase.auth.signOut()
@@ -70,6 +84,10 @@ export function Sidebar({ user }: SidebarProps) {
       setError('')
       setSuccess('')
       setNewUrl('')
+    } else if (item.action === 'quick-refresh-all') {
+      handleQuickRefreshAll()
+    } else if (item.action === 'archive-refresh-all') {
+      handleRefreshAll()
     } else {
       router.push(item.href)
     }
@@ -136,6 +154,80 @@ export function Sidebar({ user }: SidebarProps) {
     }
   }
 
+  const handleRefreshAll = async () => {
+    setRefreshing(true)
+    setRefreshProgress(null)
+    
+    try {
+      const result = await RefreshService.refreshAllSources((progress) => {
+        setRefreshProgress(progress)
+      })
+      
+      if (result.success) {
+        console.log('🎉 All sources refreshed successfully!')
+      } else {
+        console.error('❌ Some sources failed to refresh:', result.errors)
+      }
+      
+      // Trigger page refresh to show updated data
+      if (pathname === '/dashboard' || pathname === '/dashboard/connect') {
+        // Small delay to allow final progress update
+        setTimeout(() => {
+          window.location.reload()
+        }, 1000)
+      }
+      
+    } catch (error) {
+      console.error('Error during refresh all:', error)
+      setRefreshProgress({
+        current: 0,
+        total: 0,
+        currentSource: '',
+        status: 'error',
+        errors: [error instanceof Error ? error.message : 'Unknown error']
+      })
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
+  const handleQuickRefreshAll = async () => {
+    setQuickRefreshing(true)
+    setQuickRefreshProgress(null)
+    
+    try {
+      const result = await QuickRefreshService.quickRefreshAllSources((progress) => {
+        setQuickRefreshProgress(progress)
+      })
+      
+      if (result.success) {
+        console.log('⚡ All sources quick refreshed successfully!')
+      } else {
+        console.error('❌ Some sources failed to quick refresh:', result.errors)
+      }
+      
+      // Trigger page refresh to show updated data
+      if (pathname === '/dashboard' || pathname === '/dashboard/connect') {
+        // Small delay to allow final progress update
+        setTimeout(() => {
+          window.location.reload()
+        }, 1000)
+      }
+      
+    } catch (error) {
+      console.error('Error during quick refresh all:', error)
+      setQuickRefreshProgress({
+        current: 0,
+        total: 0,
+        currentSource: '',
+        status: 'error',
+        errors: [error instanceof Error ? error.message : 'Unknown error']
+      })
+    } finally {
+      setQuickRefreshing(false)
+    }
+  }
+
   return (
     <>
       <aside className="w-64 bg-sidebar border-r border-sidebar-border flex flex-col">
@@ -155,20 +247,53 @@ export function Sidebar({ user }: SidebarProps) {
             {navigationItems.map((item) => {
               const Icon = item.icon
               const isActive = item.href === pathname
+              const isArchiveRefreshing = item.action === 'archive-refresh-all' && refreshing
+              const isQuickRefreshing = item.action === 'quick-refresh-all' && quickRefreshing
+              const isCurrentlyRefreshing = isArchiveRefreshing || isQuickRefreshing
               
+              let progressText = item.name
+              let statusIcon = null
+              
+              if (isArchiveRefreshing && refreshProgress) {
+                progressText = RefreshService.formatProgress(refreshProgress)
+                if (refreshProgress.status === 'error') {
+                  statusIcon = <AlertCircle className="w-4 h-4 text-red-500" />
+                } else if (refreshProgress.status === 'complete') {
+                  statusIcon = <CheckCircle className="w-4 h-4 text-green-500" />
+                }
+              } else if (isQuickRefreshing && quickRefreshProgress) {
+                progressText = QuickRefreshService.formatProgress(quickRefreshProgress)
+                if (quickRefreshProgress.status === 'error') {
+                  statusIcon = <AlertCircle className="w-4 h-4 text-red-500" />
+                } else if (quickRefreshProgress.status === 'complete') {
+                  statusIcon = <CheckCircle className="w-4 h-4 text-green-500" />
+                }
+              }
+
               return (
                 <button
                   key={item.name}
                   onClick={() => handleNavigation(item)}
+                  disabled={isCurrentlyRefreshing}
                   className={cn(
-                    "w-full flex items-center space-x-3 px-3 py-2.5 text-sm font-medium rounded-lg transition-colors",
-                    isActive 
-                      ? "bg-sidebar-accent text-sidebar-accent-foreground" 
-                      : "text-sidebar-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground"
+                    "w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-all duration-200",
+                    "hover:bg-gray-100 dark:hover:bg-gray-800",
+                    "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2",
+                    pathname === item.href ? "bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400" : "text-gray-700 dark:text-gray-300",
+                    isCurrentlyRefreshing && "opacity-50 cursor-not-allowed"
                   )}
                 >
-                  <Icon className="w-5 h-5" />
-                  <span>{item.name}</span>
+                  <Icon className={cn("w-5 h-5", isCurrentlyRefreshing && "animate-spin")} />
+                  <span className="flex-1 truncate">
+                    {isCurrentlyRefreshing ? (
+                      <span className="text-sm">
+                        {progressText}
+                      </span>
+                    ) : (
+                      item.name
+                    )}
+                  </span>
+                  {statusIcon}
                 </button>
               )
             })}

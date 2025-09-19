@@ -6,6 +6,7 @@ import { SubstackAgent } from './substack-agent'
 import { MediumAgent } from './medium-agent'
 import { NavalAgent } from './naval-agent'
 import { UniversalAgent } from './universal-agent'
+import { VCCircleAgent } from './vccircle-agent'
 
 export interface OrchestrationResult extends AgentResult {
   agentUsed: string
@@ -34,6 +35,7 @@ export class CollectionOrchestrator {
     this.agents = [
       new NavalAgent(),        // Very high priority for nav.al
       new PosthavenAgent(),    // High priority for Sam Altman's blog
+      new VCCircleAgent(),     // High priority for VCCircle financial news
       new SubstackAgent(),     // High priority for newsletters
       new MediumAgent(),       // High priority for Medium publications
       new WordPressAgent(),    // High priority for WordPress sites
