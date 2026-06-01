@@ -30,6 +30,20 @@ export default function ConnectPage() {
     loadSources()
   }, [])
 
+  // Silently re-fetch when a background collection finishes.
+  useEffect(() => {
+    const handler = async () => {
+      try {
+        const fetchedSources = await db.getSources()
+        setSources(fetchedSources)
+      } catch (error) {
+        console.error('Error refreshing sources:', error)
+      }
+    }
+    window.addEventListener('bloghub:articles-updated', handler)
+    return () => window.removeEventListener('bloghub:articles-updated', handler)
+  }, [])
+
   const loadSources = async () => {
     try {
       setIsLoading(true)

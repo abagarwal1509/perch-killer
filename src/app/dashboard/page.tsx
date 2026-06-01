@@ -54,6 +54,24 @@ export default function DiscoverPage() {
     loadData()
   }, [])
 
+  // Silently re-fetch when a background collection finishes (no loading spinner).
+  useEffect(() => {
+    const handler = async () => {
+      try {
+        const [fetchedSources, fetchedArticles] = await Promise.all([
+          db.getSources(),
+          db.getArticles(),
+        ])
+        setSources(fetchedSources)
+        setArticles(fetchedArticles)
+      } catch (error) {
+        console.error('Error refreshing data:', error)
+      }
+    }
+    window.addEventListener('bloghub:articles-updated', handler)
+    return () => window.removeEventListener('bloghub:articles-updated', handler)
+  }, [])
+
   const loadData = async () => {
     try {
       setIsLoading(true)

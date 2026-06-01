@@ -14,7 +14,7 @@ import { RefreshService, type RefreshProgress } from '@/lib/refresh-service'
 import { QuickRefreshService, type QuickRefreshProgress } from '@/lib/quick-refresh-service'
 import { cn } from '@/lib/utils'
 import { RSSParser } from '@/lib/rss-parser'
-import { addSourceWithCollection } from '@/lib/add-source'
+import { createSource, collectArticlesForSource } from '@/lib/add-source'
 
 interface SidebarProps {
   user: any
@@ -65,6 +65,8 @@ export function Sidebar({ user }: SidebarProps) {
   const [refreshProgress, setRefreshProgress] = useState({ current: 0, total: 0, currentSource: '' })
   const [abortController, setAbortController] = useState<AbortController | null>(null)
   const [refreshing, setRefreshing] = useState(false)
+  // Names of sources whose articles are still being collected in the background.
+  const [collectingSources, setCollectingSources] = useState<string[]>([])
   const router = useRouter()
   const pathname = usePathname()
   const supabase = createSupabaseClient()
@@ -95,31 +97,46 @@ export function Sidebar({ user }: SidebarProps) {
       return
     }
     
+    const url = newUrl.trim()
     setLoading(true)
     setError('')
     setSuccess('')
 
     try {
-      // Shared path: create the source AND collect + persist its articles.
-      const { source, totalArticles, info } = await addSourceWithCollection(newUrl.trim())
+      // Fast step: create the source record, then hand off the heavy article
+      // collection to the background so the UI stays responsive.
+      const source = await createSource(url)
 
-      setSuccess(`Successfully added "${source.name}" with ${totalArticles} articles${info}!`)
+      // Close the modal immediately — collection continues in the background.
+      setNewUrl('')
+      setShowNewSourceModal(false)
+      setLoading(false)
+      router.push('/dashboard/connect')
 
-      // Clear form after 2 seconds and close modal
-      setTimeout(() => {
-        setNewUrl('')
-        setShowNewSourceModal(false)
-        setSuccess('')
-        // Redirect to Connect page to see the new source
-        router.push('/dashboard/connect')
-      }, 2000)
-
+      collectInBackground(source, url)
     } catch (error) {
       console.error('Error adding RSS source:', error)
       setError(error instanceof Error ? error.message : 'Failed to add source. Please check the URL and try again.')
-    } finally {
       setLoading(false)
     }
+  }
+
+  // Runs the heavy collection without blocking the UI. The sidebar stays
+  // mounted across dashboard navigation, so this survives page changes.
+  const collectInBackground = (source: { id: number; name: string }, url: string) => {
+    setCollectingSources(prev => [...prev, source.name])
+    collectArticlesForSource(source as any, url)
+      .then(({ totalArticles, info }) => {
+        console.log(`✅ Collected ${totalArticles} articles for ${source.name}${info}`)
+        // Tell any mounted page to silently re-fetch its data (no page reload).
+        window.dispatchEvent(new CustomEvent('bloghub:articles-updated'))
+      })
+      .catch(err => {
+        console.error(`❌ Background collection failed for ${source.name}:`, err)
+      })
+      .finally(() => {
+        setCollectingSources(prev => prev.filter(name => name !== source.name))
+      })
   }
 
   const handleCloseModal = () => {
@@ -272,6 +289,19 @@ export function Sidebar({ user }: SidebarProps) {
             })}
           </div>
         </nav>
+
+        {/* Background collection indicator */}
+        {collectingSources.length > 0 && (
+          <div className="mx-4 mb-2 px-3 py-2 rounded-lg bg-sidebar-accent/40 border border-sidebar-border">
+            <div className="flex items-center space-x-2">
+              <Loader2 className="w-4 h-4 animate-spin text-sidebar-primary shrink-0" />
+              <span className="text-xs text-sidebar-foreground truncate">
+                Collecting {collectingSources.length === 1 ? collectingSources[0] : `${collectingSources.length} sources`}…
+              </span>
+            </div>
+            <p className="text-[10px] text-muted-foreground mt-1">Articles appear as they arrive.</p>
+          </div>
+        )}
 
         {/* User Account */}
         <div className="p-4 border-t border-sidebar-border">
