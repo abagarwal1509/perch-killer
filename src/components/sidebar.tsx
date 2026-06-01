@@ -14,6 +14,7 @@ import { RefreshService, type RefreshProgress } from '@/lib/refresh-service'
 import { QuickRefreshService, type QuickRefreshProgress } from '@/lib/quick-refresh-service'
 import { cn } from '@/lib/utils'
 import { RSSParser } from '@/lib/rss-parser'
+import { addSourceWithCollection } from '@/lib/add-source'
 
 interface SidebarProps {
   user: any
@@ -97,32 +98,13 @@ export function Sidebar({ user }: SidebarProps) {
     setLoading(true)
     setError('')
     setSuccess('')
-    
+
     try {
-      const db = new DatabaseService()
-      
-      // Parse the RSS feed to validate and get info
-      const parsedFeed = await RSSParser.fetchAndParse(newUrl.trim())
-      
-      // Use the discovered feed URL or the original URL
-      const feedUrl = parsedFeed.feedUrl || newUrl.trim()
-      
-      // Save to database
-      await db.addSource({
-        name: parsedFeed.title || 'Unknown Blog',
-        url: feedUrl,
-        description: parsedFeed.description || 'Recently added blog source',
-        status: 'active',
-        last_fetched_at: new Date().toISOString(),
-        articles_count: parsedFeed.items.length
-      })
-      
-      // Show success message with discovered feed info
-      const feedInfo = parsedFeed.feedUrl && parsedFeed.feedUrl !== newUrl.trim() 
-        ? ` (found feed at ${parsedFeed.feedUrl})`
-        : ''
-      setSuccess(`Successfully added "${parsedFeed.title}" with ${parsedFeed.items.length} articles!${feedInfo}`)
-      
+      // Shared path: create the source AND collect + persist its articles.
+      const { source, totalArticles, info } = await addSourceWithCollection(newUrl.trim())
+
+      setSuccess(`Successfully added "${source.name}" with ${totalArticles} articles${info}!`)
+
       // Clear form after 2 seconds and close modal
       setTimeout(() => {
         setNewUrl('')
@@ -131,7 +113,7 @@ export function Sidebar({ user }: SidebarProps) {
         // Redirect to Connect page to see the new source
         router.push('/dashboard/connect')
       }, 2000)
-      
+
     } catch (error) {
       console.error('Error adding RSS source:', error)
       setError(error instanceof Error ? error.message : 'Failed to add source. Please check the URL and try again.')

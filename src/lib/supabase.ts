@@ -1,13 +1,30 @@
-import { createClient } from '@supabase/supabase-js'
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+// Shared singleton browser client. The app is almost entirely client-rendered,
+// so the session is persisted in the browser and automatically attached to every
+// query — which is what makes Row Level Security work for the signed-in user.
+let browserClient: SupabaseClient | null = null
 
-// Create a client that properly handles auth context for RLS
-export const createSupabaseClient = () => {
-  // Use the auth helpers for better RLS compatibility
-  return createClientComponentClient()
-} 
+function getClient(): SupabaseClient {
+  if (!browserClient) {
+    browserClient = createClient(supabaseUrl, supabaseAnonKey, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+      },
+    })
+  }
+  return browserClient
+}
+
+// Plain client (kept for backwards-compatibility with existing imports).
+export const supabase = getClient()
+
+// Returns the shared singleton. Previously this created a new auth-helpers
+// cookie client on every call; using one shared instance avoids session
+// mismatches between the auth UI and the database service.
+export const createSupabaseClient = () => getClient()

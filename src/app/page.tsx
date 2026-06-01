@@ -7,6 +7,11 @@ import { Button } from '@/components/ui/button'
 
 export default function LandingPage() {
   const [loading, setLoading] = useState(false)
+  const [mode, setMode] = useState<'signin' | 'signup'>('signin')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [info, setInfo] = useState<string | null>(null)
   const router = useRouter()
   const supabase = createSupabaseClient()
 
@@ -20,17 +25,35 @@ export default function LandingPage() {
     checkUser()
   }, [router, supabase.auth])
 
-  const handleGoogleSignIn = async () => {
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError(null)
+    setInfo(null)
     setLoading(true)
     try {
-      const { data, error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/dashboard`
+      if (mode === 'signin') {
+        const { error } = await supabase.auth.signInWithPassword({ email, password })
+        if (error) {
+          setError(error.message)
+          return
         }
-      })
-    } catch (error) {
-      console.error('Error signing in:', error)
+        router.push('/dashboard')
+      } else {
+        const { data, error } = await supabase.auth.signUp({ email, password })
+        if (error) {
+          setError(error.message)
+          return
+        }
+        // If email confirmation is disabled, a session is returned immediately.
+        if (data.session) {
+          router.push('/dashboard')
+        } else {
+          setInfo('Account created. Check your email to confirm, then sign in.')
+          setMode('signin')
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong')
     } finally {
       setLoading(false)
     }
@@ -51,14 +74,6 @@ export default function LandingPage() {
             <a href="#" className="text-sm text-muted-foreground hover:text-foreground">Our story</a>
             <a href="#" className="text-sm text-muted-foreground hover:text-foreground">Membership</a>
             <a href="#" className="text-sm text-muted-foreground hover:text-foreground">Write</a>
-            <Button 
-              onClick={handleGoogleSignIn}
-              disabled={loading}
-              variant="default"
-              className="rounded-full"
-            >
-              {loading ? 'Signing in...' : 'Get started'}
-            </Button>
           </nav>
         </div>
       </header>
@@ -76,48 +91,64 @@ export default function LandingPage() {
             <p className="text-xl text-muted-foreground mb-12 leading-relaxed">
               A place to read, write, and deepen your understanding of the blogs you love most.
             </p>
-            <Button 
-              onClick={handleGoogleSignIn}
-              disabled={loading}
-              size="lg"
-              className="rounded-full text-lg px-8 py-6"
-            >
-              {loading ? 'Signing in...' : 'Start reading'}
-            </Button>
           </div>
 
-          {/* Right Illustration */}
-          <div className="flex-1 flex justify-center lg:justify-end mt-12 lg:mt-0">
-            <div className="relative">
-              {/* Simple geometric illustration inspired by Medium */}
-              <div className="w-80 h-80 relative">
-                <div className="absolute top-0 right-0 w-32 h-32 bg-green-400 rounded-full opacity-80"></div>
-                <div className="absolute top-16 right-16 w-24 h-24 bg-green-500 rounded-full"></div>
-                <div className="absolute top-8 right-8 w-16 h-16 bg-green-600 rounded-full"></div>
-                <div className="absolute bottom-0 left-0 w-40 h-20 bg-green-300 rounded-lg transform rotate-12"></div>
-                <div className="absolute bottom-8 left-8 w-32 h-16 bg-green-400 rounded-lg transform -rotate-6"></div>
-                {/* Scattered dots */}
-                <div className="absolute top-24 left-12 w-2 h-2 bg-foreground rounded-full"></div>
-                <div className="absolute top-32 left-24 w-2 h-2 bg-foreground rounded-full"></div>
-                <div className="absolute bottom-32 right-12 w-2 h-2 bg-foreground rounded-full"></div>
-                <div className="absolute bottom-24 right-24 w-2 h-2 bg-foreground rounded-full"></div>
-              </div>
+          {/* Right: Auth Card */}
+          <div className="flex-1 flex justify-center lg:justify-end mt-12 lg:mt-0 w-full">
+            <div className="w-full max-w-sm bg-card border border-border rounded-2xl p-8 shadow-sm">
+              <h2 className="text-2xl font-semibold mb-1">
+                {mode === 'signin' ? 'Welcome back.' : 'Create your account'}
+              </h2>
+              <p className="text-sm text-muted-foreground mb-6">
+                {mode === 'signin' ? 'Sign in to continue reading.' : 'Start reading the blogs you love.'}
+              </p>
+
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Email</label>
+                  <input
+                    type="email"
+                    required
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+                    placeholder="you@example.com"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Password</label>
+                  <input
+                    type="password"
+                    required
+                    minLength={6}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+                    placeholder="••••••••"
+                  />
+                </div>
+
+                {error && <p className="text-sm text-red-500">{error}</p>}
+                {info && <p className="text-sm text-green-600">{info}</p>}
+
+                <Button type="submit" disabled={loading} className="w-full rounded-full" size="lg">
+                  {loading ? 'Please wait…' : mode === 'signin' ? 'Sign in' : 'Create account'}
+                </Button>
+              </form>
+
+              <p className="text-sm text-muted-foreground mt-4 text-center">
+                {mode === 'signin' ? "Don't have an account?" : 'Already have an account?'}{' '}
+                <button
+                  type="button"
+                  onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setError(null); setInfo(null) }}
+                  className="text-foreground font-medium hover:underline"
+                >
+                  {mode === 'signin' ? 'Sign up' : 'Sign in'}
+                </button>
+              </p>
             </div>
           </div>
         </div>
-
-        {/* Sign In Modal Style - Welcome Back */}
-        {loading && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-background rounded-xl p-8 max-w-md w-full mx-4">
-              <div className="text-center">
-                <h2 className="text-2xl font-semibold mb-6">Welcome back.</h2>
-                <div className="animate-spin w-8 h-8 border-2 border-primary border-t-transparent rounded-full mx-auto"></div>
-                <p className="text-sm text-muted-foreground mt-4">Signing you in...</p>
-              </div>
-            </div>
-          </div>
-        )}
       </main>
 
       {/* Footer */}
@@ -127,12 +158,8 @@ export default function LandingPage() {
             <a href="#" className="hover:text-foreground">Help</a>
             <a href="#" className="hover:text-foreground">Status</a>
             <a href="#" className="hover:text-foreground">About</a>
-            <a href="#" className="hover:text-foreground">Careers</a>
-            <a href="#" className="hover:text-foreground">Press</a>
-            <a href="#" className="hover:text-foreground">Blog</a>
             <a href="#" className="hover:text-foreground">Privacy</a>
             <a href="#" className="hover:text-foreground">Terms</a>
-            <a href="#" className="hover:text-foreground">Text to speech</a>
           </div>
         </div>
       </footer>
