@@ -8,6 +8,7 @@ import {
   ArrowLeft, Heart, MessageSquare, Repeat, Settings 
 } from 'lucide-react'
 import EnhancedArticleContent from './enhanced-article-content'
+import { DatabaseService } from '@/lib/database'
 
 interface Article {
   id: number
@@ -234,6 +235,15 @@ export function ArticleReader({ article, isOpen, onClose }: ArticleReaderProps) 
       
       if (result.success && result.content) {
         setEnhancedContent(result.content)
+        // Cache the extracted content back to the DB (client-side, so RLS uses
+        // the user's session). Best-effort — a failure here shouldn't surface.
+        if (article.id) {
+          try {
+            await new DatabaseService().updateArticleContent(article.id, result.content)
+          } catch (cacheErr) {
+            console.warn('Could not cache extracted content:', cacheErr)
+          }
+        }
       } else {
         if (!auto) {
           setContentError(result.error || 'Failed to extract content')

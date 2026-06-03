@@ -6,71 +6,41 @@ export class SubstackAgent extends BaseAgent {
   description = 'Specialized agent for Substack newsletters'
 
   async canHandle(url: string): Promise<number> {
-    const domain = new URL(url).hostname
-    const urlPath = new URL(url).pathname
-    
-    // BULLETPROOF SUBSTACK DETECTION - NEVER MISS AGAIN!
-    
-    // 1. OBVIOUS SUBSTACK DOMAINS - 95% confidence
+    // canHandle must be CHEAP and URL-only (per BaseAgent contract). Deep
+    // content/RSS analysis happens in verify(), which only runs on the agent the
+    // orchestrator actually selects — doing it here previously over-claimed
+    // confidence on non-Substack sites (e.g. blog.ghost.org) and mis-routed them.
+    let domain = ''
+    let urlPath = ''
+    try {
+      const u = new URL(url)
+      domain = u.hostname
+      urlPath = u.pathname
+    } catch {
+      return 0.1
+    }
+
+    // Definite Substack signals.
     if (domain.endsWith('.substack.com')) return 0.95
-    if (url.includes('substack')) return 0.8
-    
-    // 2. STRUCTURAL URL PATTERNS - Strong Substack indicators - 90% confidence
-    // Check for /p/ pattern (Substack post URLs always use /p/article-name)
-    if (url.includes('/p/') || urlPath.includes('/p/')) {
-      console.log(`🎯 Substack Agent: Found /p/ pattern in URL - strong Substack indicator`)
-      return 0.9
-    }
-    
-    // 3. ENHANCED CONTENT-BASED DETECTION - 85-90% confidence
-    const contentConfidence = await this.performDeepSubstackAnalysis(url)
-    if (contentConfidence >= 0.85) {
-      console.log(`🎯 Substack Agent: Deep analysis confidence: ${contentConfidence}`)
-      return contentConfidence
-    }
-    
-    // 4. RSS FEED STRUCTURE ANALYSIS - 85% confidence
-    const rssConfidence = await this.analyzeRSSForSubstack(url)
-    if (rssConfidence >= 0.85) {
-      console.log(`🎯 Substack Agent: RSS analysis indicates Substack: ${rssConfidence}`)
-      return rssConfidence
-    }
-    
-    // 5. EXPANDED KNOWN CUSTOM DOMAINS - 90% confidence
+    if (url.includes('substack')) return 0.85
+
+    // Known custom-domain Substacks (exact host or subdomain).
     const knownSubstackCustomDomains = [
-      'growthunhinged.com',
-      'argmin.net', // Ben Recht's blog
-      'stratechery.com',
-      'morningbrew.com',
-      'thehustle.co',
-      'lennysnewsletter.com',
-      'platformer.news',
-      'casey.news',
-      'kylepoyas.com',
-      'noahpinion.blog',
-      'astralcodexten.substack.com',
-      'danluu.com',
-      'birdsite.xavin.com',
-      'newsletter.pragmaticengineer.com',
-      'sethgodin.typepad.com'
+      'growthunhinged.com', 'argmin.net', 'stratechery.com', 'morningbrew.com',
+      'thehustle.co', 'lennysnewsletter.com', 'platformer.news', 'casey.news',
+      'kylepoyas.com', 'noahpinion.blog', 'danluu.com', 'birdsite.xavin.com',
+      'newsletter.pragmaticengineer.com', 'sethgodin.typepad.com',
     ]
-    
-    if (knownSubstackCustomDomains.some(d => domain.includes(d) || d.includes(domain))) {
-      console.log(`🎯 Substack Agent: Found in known custom domains list`)
+    if (knownSubstackCustomDomains.some(d => domain === d || domain.endsWith('.' + d))) {
       return 0.9
     }
-    
-    // 6. NEWSLETTER DOMAIN PATTERNS - 60% confidence
-    if (domain.includes('newsletter') || url.includes('newsletter')) return 0.6
-    
-    // 7. SOPHISTICATED DOMAIN ANALYSIS - Check for custom domain newsletters
-    if (await this.isLikelyCustomDomainNewsletter(domain, url)) {
-      console.log(`🎯 Substack Agent: Appears to be custom domain newsletter`)
-      return 0.7
-    }
-    
-    // Fallback - still give a chance for content detection
-    return Math.max(contentConfidence, 0.1)
+
+    // Weaker URL signals — enough to beat the Universal fallback (0.3) but not to
+    // outrank a strong platform match. verify() confirms before collection.
+    if (urlPath.includes('/p/')) return 0.55
+    if (domain.includes('newsletter') || url.includes('newsletter')) return 0.5
+
+    return 0.1
   }
 
   private async performDeepSubstackAnalysis(url: string): Promise<number> {

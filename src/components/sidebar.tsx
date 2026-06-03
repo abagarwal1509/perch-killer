@@ -14,7 +14,7 @@ import { RefreshService, type RefreshProgress } from '@/lib/refresh-service'
 import { QuickRefreshService, type QuickRefreshProgress } from '@/lib/quick-refresh-service'
 import { cn } from '@/lib/utils'
 import { RSSParser } from '@/lib/rss-parser'
-import { createSource, collectArticlesForSource } from '@/lib/add-source'
+import { createSource } from '@/lib/add-source'
 
 interface SidebarProps {
   user: any
@@ -65,8 +65,8 @@ export function Sidebar({ user }: SidebarProps) {
   const [refreshProgress, setRefreshProgress] = useState({ current: 0, total: 0, currentSource: '' })
   const [abortController, setAbortController] = useState<AbortController | null>(null)
   const [refreshing, setRefreshing] = useState(false)
-  // Names of sources whose articles are still being collected in the background.
-  const [collectingSources, setCollectingSources] = useState<string[]>([])
+  // IDs of collection jobs still pending/running (driven by Supabase Realtime).
+  const [activeJobs, setActiveJobs] = useState<number[]>([])
   const router = useRouter()
   const pathname = usePathname()
   const supabase = createSupabaseClient()
@@ -75,6 +75,50 @@ export function Sidebar({ user }: SidebarProps) {
     await supabase.auth.signOut()
     router.push('/')
   }
+
+  // Track in-flight collection jobs via Realtime so progress survives tab
+  // close/reload and any page can refresh when a job finishes.
+  useEffect(() => {
+    if (!user?.id) return
+
+    const loadActive = async () => {
+      const { data } = await supabase
+        .from('collection_jobs')
+        .select('id, status')
+        .eq('user_id', user.id)
+        .in('status', ['pending', 'running'])
+      setActiveJobs((data || []).map((j: any) => j.id))
+    }
+    loadActive()
+
+    const channel = supabase
+      .channel(`collection_jobs_${user.id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'collection_jobs', filter: `user_id=eq.${user.id}` },
+        (payload) => {
+          const row: any = payload.new
+          if (!row) return
+          setActiveJobs((prev) => {
+            const others = prev.filter((id) => id !== row.id)
+            if (row.status === 'pending' || row.status === 'running') {
+              return [...others, row.id]
+            }
+            if (row.status === 'done' || row.status === 'error') {
+              // Notify mounted pages to silently re-fetch their data.
+              window.dispatchEvent(new CustomEvent('bloghub:articles-updated'))
+            }
+            return others
+          })
+        },
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id])
 
   const handleNavigation = (item: any) => {
     if (item.action === 'new-source') {
@@ -103,40 +147,35 @@ export function Sidebar({ user }: SidebarProps) {
     setSuccess('')
 
     try {
-      // Fast step: create the source record, then hand off the heavy article
-      // collection to the background so the UI stays responsive.
+      // Fast step: create the source row client-side (RLS uses the session),
+      // then enqueue a durable server-side collection job. The job runs on the
+      // server via Inngest, so it survives navigation AND closing the tab.
       const source = await createSource(url)
 
-      // Close the modal immediately — collection continues in the background.
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch('/api/collections/enqueue', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session?.access_token ?? ''}`,
+        },
+        body: JSON.stringify({ sourceId: source.id, type: 'historical' }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.error || 'Failed to start collection')
+      }
+
+      // Close the modal immediately — progress is shown via Realtime.
       setNewUrl('')
       setShowNewSourceModal(false)
       setLoading(false)
       router.push('/dashboard/connect')
-
-      collectInBackground(source, url)
     } catch (error) {
       console.error('Error adding RSS source:', error)
       setError(error instanceof Error ? error.message : 'Failed to add source. Please check the URL and try again.')
       setLoading(false)
     }
-  }
-
-  // Runs the heavy collection without blocking the UI. The sidebar stays
-  // mounted across dashboard navigation, so this survives page changes.
-  const collectInBackground = (source: { id: number; name: string }, url: string) => {
-    setCollectingSources(prev => [...prev, source.name])
-    collectArticlesForSource(source as any, url)
-      .then(({ totalArticles, info }) => {
-        console.log(`✅ Collected ${totalArticles} articles for ${source.name}${info}`)
-        // Tell any mounted page to silently re-fetch its data (no page reload).
-        window.dispatchEvent(new CustomEvent('bloghub:articles-updated'))
-      })
-      .catch(err => {
-        console.error(`❌ Background collection failed for ${source.name}:`, err)
-      })
-      .finally(() => {
-        setCollectingSources(prev => prev.filter(name => name !== source.name))
-      })
   }
 
   const handleCloseModal = () => {
@@ -290,16 +329,16 @@ export function Sidebar({ user }: SidebarProps) {
           </div>
         </nav>
 
-        {/* Background collection indicator */}
-        {collectingSources.length > 0 && (
+        {/* Background collection indicator (Realtime-driven, survives reload) */}
+        {activeJobs.length > 0 && (
           <div className="mx-4 mb-2 px-3 py-2 rounded-lg bg-sidebar-accent/40 border border-sidebar-border">
             <div className="flex items-center space-x-2">
               <Loader2 className="w-4 h-4 animate-spin text-sidebar-primary shrink-0" />
               <span className="text-xs text-sidebar-foreground truncate">
-                Collecting {collectingSources.length === 1 ? collectingSources[0] : `${collectingSources.length} sources`}…
+                Collecting {activeJobs.length === 1 ? '1 source' : `${activeJobs.length} sources`}…
               </span>
             </div>
-            <p className="text-[10px] text-muted-foreground mt-1">Articles appear as they arrive.</p>
+            <p className="text-[10px] text-muted-foreground mt-1">Runs in the background — you can close this tab.</p>
           </div>
         )}
 

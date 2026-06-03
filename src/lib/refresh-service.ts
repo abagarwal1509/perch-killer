@@ -1,5 +1,5 @@
 import { DatabaseService } from './database'
-import { createCollectionOrchestrator } from './agents'
+import { collectArticlesForSource } from './add-source'
 
 export interface RefreshProgress {
   current: number
@@ -51,7 +51,7 @@ export class RefreshService {
         updateProgress('collecting', source.name)
 
         try {
-          await this.refreshSource(source.url, source.name)
+          await this.refreshSource(source)
           updateProgress('processing', source.name)
         } catch (error) {
           const errorMessage = `Failed to refresh ${source.name}: ${error instanceof Error ? error.message : 'Unknown error'}`
@@ -83,22 +83,12 @@ export class RefreshService {
   }
 
   /**
-   * Refresh a single source
+   * Refresh a single source — collects AND persists new articles (dedupe is
+   * handled by the upsert in db.addArticles).
    */
-  static async refreshSource(url: string, sourceName: string): Promise<void> {
-    const orchestrator = createCollectionOrchestrator()
-    
-    // Collect historical articles for this source
-    const result = await orchestrator.collectHistoricalArticles(url)
-    
-    if (!result.success) {
-      const errorMessage = result.errors && result.errors.length > 0 
-        ? result.errors.join(', ') 
-        : 'Failed to collect articles'
-      throw new Error(errorMessage)
-    }
-
-    console.log(`✅ Refreshed ${sourceName}: ${result.articles?.length || 0} articles processed`)
+  static async refreshSource(source: { id: number; url: string; name: string }): Promise<void> {
+    const { totalArticles, info } = await collectArticlesForSource(source as any, source.url)
+    console.log(`✅ Refreshed ${source.name}: ${totalArticles} new articles persisted${info}`)
   }
 
   /**

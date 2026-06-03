@@ -6,6 +6,7 @@ import { Plus, Globe, Trash2, RefreshCw, CheckCircle, XCircle, Loader2 } from 'l
 import { RSSParser } from '@/lib/rss-parser'
 import { DatabaseService, Source } from '@/lib/database'
 import { CollectionOrchestrator } from '@/lib/agents'
+import { createSource } from '@/lib/add-source'
 
 // Helper function to estimate read time
 function estimateReadTime(content: string): string {
@@ -68,136 +69,35 @@ export default function ConnectPage() {
     setSuccess('')
     
     try {
-      // First, validate the URL and try to get basic feed info for source metadata
-      let feedTitle = 'Unknown Blog'
-      let feedDescription = 'Recently added blog source'
-      
-      try {
-        const parsedFeed = await RSSParser.fetchAndParse(newUrl.trim())
-        feedTitle = parsedFeed.title || feedTitle
-        feedDescription = parsedFeed.description || feedDescription
-      } catch (rssError) {
-        console.log('RSS parsing failed, will use agent system for content discovery')
-        // Extract title from URL as fallback
-        try {
-          const url = new URL(newUrl.trim())
-          feedTitle = url.hostname.replace('www.', '').replace('.com', '').replace('.org', '').replace('.net', '')
-          feedTitle = feedTitle.charAt(0).toUpperCase() + feedTitle.slice(1) + ' Blog'
-        } catch {
-          // Keep default title
-        }
-      }
-      
-      // Create the source first
-      const newSource = await db.addSource({
-        name: feedTitle,
-        url: newUrl.trim(),
-        description: feedDescription,
-        status: 'active',
-        last_fetched_at: new Date().toISOString(),
-        articles_count: 0 // Will be updated after collection
+      // Create the source row (fast), then enqueue a durable server-side
+      // collection job. Collection runs in the background and progress is shown
+      // via the sidebar's Realtime indicator; the list refreshes on completion.
+      const newSource = await createSource(newUrl.trim())
+
+      const { data: { session } } = await db.supabase.auth.getSession()
+      const res = await fetch('/api/collections/enqueue', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session?.access_token ?? ''}`,
+        },
+        body: JSON.stringify({ sourceId: newSource.id, type: 'historical' }),
       })
-      
-      // 🚀 UNIFIED: Use agent-based collection system for complete content
-      console.log(`🤖 Starting unified agent-based collection for ${newSource.name}...`)
-      
-      const orchestrator = new CollectionOrchestrator()
-      const collectionResult = await orchestrator.collectHistoricalArticles(newUrl.trim())
-      
-      let totalArticles = 0
-      let collectionInfo = ''
-      
-      if (collectionResult.success && collectionResult.articles.length > 0) {
-        console.log(`📚 Agent system found ${collectionResult.articles.length} articles using ${collectionResult.agentUsed}`)
-        
-                 // Convert agent results to database format with complete content
-         const agentArticles = collectionResult.articles.map((article: any) => ({
-           source_id: newSource.id,
-           title: article.title,
-           description: article.description || 'Article collected via intelligent agent system',
-           content: article.content || article.description, // Full content from agents
-           url: article.url,
-           author: article.author || newSource.name,
-           published_at: article.publishedDate,
-           image_url: article.imageUrl,
-           categories: [],
-           read_time: estimateReadTime(article.content || article.description || ''),
-           is_read: false,
-           is_bookmarked: false,
-           is_enhanced: !!article.content, // Mark as enhanced if we have full content
-           content_length: (article.content || '').length,
-           ai_analysis: {},
-           key_quotes: [],
-           main_themes: [],
-           contradicts_previous: false,
-           related_article_ids: []
-         }))
-        
-        // Store all articles with complete content
-        const storedArticles = await db.addArticles(agentArticles)
-        totalArticles = storedArticles.length
-        
-        // Update source with actual article count
-        await db.updateSource(newSource.id, {
-          articles_count: totalArticles
-        })
-        
-        collectionInfo = ` using ${collectionResult.agentUsed} agent`
-        console.log(`✅ Successfully added ${totalArticles} complete articles`)
-      } else {
-        console.log('⚠️ Agent collection failed or found no articles, falling back to RSS if available')
-        
-        // Fallback to RSS if agent system fails
-        try {
-          const parsedFeed = await RSSParser.fetchAndParse(newUrl.trim())
-                     const rssArticles = parsedFeed.items.map(item => ({
-             source_id: newSource.id,
-             title: item.title,
-             description: item.description,
-             content: item.description, // RSS content (limited)
-             url: item.link,
-             author: item.author,
-             published_at: item.pubDate ? new Date(item.pubDate).toISOString() : undefined,
-             image_url: item.enclosure?.url || undefined,
-             categories: item.categories || [],
-             read_time: estimateReadTime(item.description || ''),
-             is_read: false,
-             is_bookmarked: false,
-             is_enhanced: false, // Mark as not enhanced (RSS only)
-             content_length: (item.description || '').length,
-             ai_analysis: {},
-             key_quotes: [],
-             main_themes: [],
-             contradicts_previous: false,
-             related_article_ids: []
-           }))
-          
-          const storedArticles = await db.addArticles(rssArticles)
-          totalArticles = storedArticles.length
-          
-          await db.updateSource(newSource.id, {
-            articles_count: totalArticles
-          })
-          
-          collectionInfo = ' (RSS fallback - limited content)'
-        } catch (fallbackError) {
-          console.error('Both agent and RSS collection failed:', fallbackError)
-          collectionInfo = ' (collection failed - source added for future sync)'
-        }
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.error || 'Failed to start collection')
       }
 
       setSources([newSource, ...sources])
-      
-      // Enhanced success message with agent information
-      setSuccess(`Successfully added "${feedTitle}" with ${totalArticles} articles${collectionInfo}!`)
-      
+      setSuccess(`Added "${newSource.name}" — collecting articles in the background…`)
+
       // Clear form after 3 seconds
       setTimeout(() => {
         setNewUrl('')
         setShowAddModal(false)
         setSuccess('')
       }, 3000)
-      
+
     } catch (error) {
       console.error('Error adding source:', error)
       setError(error instanceof Error ? error.message : 'Failed to add source. Please check the URL and try again.')

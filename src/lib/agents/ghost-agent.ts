@@ -1,4 +1,3 @@
-import { XMLParser } from 'fast-xml-parser'
 import { BaseAgent, AgentResult, HistoricalArticle, PlatformIndicators } from './base-agent'
 
 export class GhostAgent extends BaseAgent {
@@ -150,7 +149,7 @@ export class GhostAgent extends BaseAgent {
       
       for (const rssUrl of rssUrls) {
         try {
-          const rssArticles = await this.collectFromRSSFeedWithPagination(rssUrl, 10)
+          const rssArticles = await this.collectFromFeedPaginated(rssUrl, { maxPages: 10 })
           if (rssArticles.length > 0) {
             articles.push(...rssArticles)
             methodsUsed.push(`RSS: ${rssUrl}`)
@@ -161,24 +160,21 @@ export class GhostAgent extends BaseAgent {
           // Continue to next RSS URL
         }
       }
-      
+
       // Method 3: Try Ghost sitemaps (comprehensive for Ghost)
       console.log('🗺️ Ghost Agent: Trying Ghost sitemaps...')
       const sitemapUrls = [
         `${baseUrl}/sitemap.xml`,
         `${baseUrl}/sitemap-posts.xml`
       ]
-      
+
       for (const sitemapUrl of sitemapUrls) {
         try {
-          const checkResponse = await fetch(this.getAbsoluteUrl(`/api/scrape-content?url=${encodeURIComponent(sitemapUrl)}`))
-          if (checkResponse.ok) {
-            const sitemapArticles = await this.parseSitemap(sitemapUrl)
-            if (sitemapArticles.length > 0) {
-              articles.push(...sitemapArticles)
-              methodsUsed.push(`Sitemap: ${sitemapUrl}`)
-              console.log(`✅ Ghost Agent Sitemap: Found ${sitemapArticles.length} articles from ${sitemapUrl}`)
-            }
+          const sitemapArticles = await this.parseSitemapRecursive(sitemapUrl)
+          if (sitemapArticles.length > 0) {
+            articles.push(...sitemapArticles)
+            methodsUsed.push(`Sitemap: ${sitemapUrl}`)
+            console.log(`✅ Ghost Agent Sitemap: Found ${sitemapArticles.length} articles from ${sitemapUrl}`)
           }
         } catch (error) {
           // Silently skip non-existent sitemaps
@@ -231,235 +227,54 @@ export class GhostAgent extends BaseAgent {
     }
   }
 
-  private async collectFromRSSFeedWithPagination(rssUrl: string, maxPages: number = 10): Promise<HistoricalArticle[]> {
-    const allArticles: HistoricalArticle[] = []
-    
-    // First, try the base RSS feed
-    const baseArticles = await this.collectFromRSSFeed(rssUrl)
-    allArticles.push(...baseArticles)
-    
-    // Try pagination patterns
-    if (baseArticles.length > 0) {
-      const paginationPatterns = ['page', 'p']
-      
-      for (const pattern of paginationPatterns) {
-        let page = 2
-        let consecutiveEmptyPages = 0
-        const maxConsecutiveEmpty = 3
-        
-        while (page <= maxPages && consecutiveEmptyPages < maxConsecutiveEmpty) {
-          try {
-            const separator = rssUrl.includes('?') ? '&' : '?'
-            const paginatedUrl = `${rssUrl}${separator}${pattern}=${page}`
-            
-            const pageArticles = await this.collectFromRSSFeed(paginatedUrl)
-            
-            if (pageArticles.length === 0) {
-              consecutiveEmptyPages++
-            } else {
-              consecutiveEmptyPages = 0
-              allArticles.push(...pageArticles)
-            }
-            
-            page++
-            await new Promise(resolve => setTimeout(resolve, 1000)) // Rate limiting
-            
-          } catch (error) {
-            consecutiveEmptyPages++
-            page++
-          }
-        }
-        
-        if (allArticles.length > baseArticles.length) {
-          break // Found working pagination
-        }
-      }
-    }
-    
-    return this.deduplicateAndSort(allArticles)
-  }
-
-  private async collectFromRSSFeed(rssUrl: string): Promise<HistoricalArticle[]> {
-    const articles: HistoricalArticle[] = []
-    
-    try {
-      const proxyUrl = this.getAbsoluteUrl(`/api/rss-proxy?url=${encodeURIComponent(rssUrl)}`)
-      const response = await fetch(proxyUrl)
-      
-      if (!response.ok) {
-        throw new Error(`RSS fetch failed: ${response.status}`)
-      }
-
-      const rssXml = await response.text()
-      const parser = new XMLParser({
-        ignoreAttributes: false,
-        attributeNamePrefix: '@_',
-        textNodeName: '#text',
-        parseAttributeValue: true,
-        trimValues: true
-      })
-      
-      const xmlDoc = parser.parse(rssXml)
-      
-      let items: any[] = []
-      let isAtom = false
-      
-      if (xmlDoc.feed && xmlDoc.feed.entry) {
-        isAtom = true
-        items = Array.isArray(xmlDoc.feed.entry) ? xmlDoc.feed.entry : [xmlDoc.feed.entry]
-      } else if (xmlDoc.rss && xmlDoc.rss.channel && xmlDoc.rss.channel.item) {
-        items = Array.isArray(xmlDoc.rss.channel.item) ? xmlDoc.rss.channel.item : [xmlDoc.rss.channel.item]
-      }
-      
-      for (const item of items) {
-        try {
-          let title, link, pubDate, description
-          
-          if (isAtom) {
-            title = item.title?.['#text'] || item.title
-            link = item.link?.['@_href'] || (Array.isArray(item.link) ? item.link[0]?.['@_href'] : item.link)
-            pubDate = item.published || item.updated
-            description = item.summary?.['#text'] || item.summary || item.content?.['#text'] || item.content
-          } else {
-            title = item.title?.['#text'] || item.title
-            link = item.link?.['#text'] || item.link
-            pubDate = item.pubDate || item['dc:date']
-            description = item.description?.['#text'] || item.description || item['content:encoded']?.['#text'] || item['content:encoded']
-          }
-          
-          if (title && link) {
-            articles.push({
-              title: typeof title === 'string' ? title.trim() : String(title).trim(),
-              url: typeof link === 'string' ? link.trim() : String(link).trim(),
-              publishedDate: pubDate ? this.parseDate(String(pubDate)) : new Date().toISOString(),
-              description: description ? (typeof description === 'string' ? description.trim() : String(description).trim()) : '',
-              author: new URL(rssUrl).hostname
-            })
-          }
-        } catch (itemError) {
-          // Skip invalid items
-        }
-      }
-      
-    } catch (error) {
-      throw new Error(`RSS collection failed: ${error}`)
-    }
-    
-    return articles
-  }
-
-  private async parseSitemap(sitemapUrl: string): Promise<HistoricalArticle[]> {
-    const articles: HistoricalArticle[] = []
-    
-    try {
-      const response = await fetch(this.getAbsoluteUrl(`/api/scrape-content?url=${encodeURIComponent(sitemapUrl)}`))
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`)
-      }
-      
-      const xml = await response.text()
-      const parser = new XMLParser({ ignoreAttributes: false })
-      const xmlDoc = parser.parse(xml)
-
-      // Handle sitemap index (links to other sitemaps)
-      if (xmlDoc.sitemapindex && xmlDoc.sitemapindex.sitemap) {
-        let sitemaps = xmlDoc.sitemapindex.sitemap
-        if (!Array.isArray(sitemaps)) sitemaps = [sitemaps]
-
-        for (const sitemap of sitemaps) {
-          if (sitemap.loc) {
-            const subSitemapArticles = await this.parseSitemap(sitemap.loc)
-            articles.push(...subSitemapArticles)
-          }
-        }
-      }
-
-      // Handle regular sitemap (URLs)
-      if (xmlDoc.urlset && xmlDoc.urlset.url) {
-        let urls = xmlDoc.urlset.url
-        if (!Array.isArray(urls)) urls = [urls]
-
-        for (const urlElement of urls) {
-          const loc = urlElement.loc
-          if (loc && this.looksLikeArticle(loc)) {
-            const title = this.extractTitleFromUrl(loc)
-            articles.push({
-              title,
-              url: loc,
-              publishedDate: urlElement.lastmod || new Date().toISOString(),
-              author: new URL(sitemapUrl).hostname
-            })
-          }
-        }
-      }
-      
-    } catch (error) {
-      throw new Error(`Sitemap parsing failed: ${error}`)
-    }
-    
-    return articles
-  }
-
   private async collectFromGhostAPI(baseUrl: string): Promise<HistoricalArticle[]> {
-    const articles: HistoricalArticle[] = []
-    
-    try {
-      // Try Ghost Content API v4 first, then v3
-      const apiVersions = [
-        { version: 'v4', url: `${baseUrl}/ghost/api/v4/content/posts/?key=public&limit=100` },
-        { version: 'v3', url: `${baseUrl}/ghost/api/v3/content/posts/?key=public&limit=100` }
-      ]
-      
-      for (const api of apiVersions) {
-        try {
-          const response = await fetch(this.getAbsoluteUrl(`/api/scrape-content?url=${encodeURIComponent(api.url)}`))
-          
-          if (response.ok) {
-            const data = await response.json()
-            
-            if (data.posts && Array.isArray(data.posts)) {
-              console.log(`✅ Ghost API ${api.version}: Found ${data.posts.length} posts`)
-              
-              for (const post of data.posts) {
-                articles.push({
-                  title: post.title || 'Untitled',
-                  url: post.url || `${baseUrl}/${post.slug}`,
-                  publishedDate: this.parseDate(post.published_at || post.created_at),
-                  description: post.excerpt || post.meta_description || '',
-                  author: post.primary_author?.name || new URL(baseUrl).hostname
-                })
-              }
-              
-              // If we got posts from this API version, use them
-              if (articles.length > 0) {
-                break
-              }
-            }
-          }
-        } catch (versionError) {
-          console.log(`⚠️ Ghost API ${api.version} failed:`, versionError)
-          continue
-        }
-      }
-      
-      if (articles.length === 0) {
-        throw new Error('No Ghost API version responded with posts')
-      }
-      
-    } catch (error) {
-      throw new Error(`Ghost API failed: ${error}`)
-    }
-    
-    return articles
-  }
+    const host = new URL(baseUrl).hostname
 
-  private extractTitleFromUrl(url: string): string {
-    const parts = url.split('/')
-    const slug = parts[parts.length - 1] || parts[parts.length - 2]
-    
-    return slug
-      .replace(/\.(html|php)$/, '')
-      .replace(/[-_]/g, ' ')
-      .replace(/\b\w/g, l => l.toUpperCase())
+    // Ghost's Content API paginates: meta.pagination.{pages,next}. Page through
+    // the whole archive instead of taking only the first 100 posts.
+    for (const version of ['v4', 'v3']) {
+      const articles: HistoricalArticle[] = []
+      try {
+        let page = 1
+        const maxPages = 50 // 50 × 100 = up to 5000 posts
+        while (page <= maxPages) {
+          const apiUrl = `${baseUrl}/ghost/api/${version}/content/posts/?key=public&limit=100&page=${page}`
+          const response = await fetch(this.getAbsoluteUrl(`/api/scrape-content?url=${encodeURIComponent(apiUrl)}`))
+          if (!response.ok) break
+
+          const data = await response.json()
+          if (!data?.posts || !Array.isArray(data.posts) || data.posts.length === 0) break
+
+          for (const post of data.posts) {
+            articles.push({
+              title: post.title || 'Untitled',
+              url: post.url || `${baseUrl}/${post.slug}`,
+              publishedDate: this.parseDate(post.published_at || post.created_at),
+              description: post.excerpt || post.meta_description || '',
+              author: post.primary_author?.name || host,
+            })
+          }
+
+          const pagination = data.meta?.pagination
+          if (pagination?.next) {
+            page = pagination.next
+          } else if (pagination?.pages && page < pagination.pages) {
+            page++
+          } else {
+            break
+          }
+          await new Promise(r => setTimeout(r, 300))
+        }
+      } catch {
+        // fall through to next API version
+      }
+
+      if (articles.length > 0) {
+        console.log(`✅ Ghost API ${version}: ${articles.length} posts (paginated)`)
+        return articles
+      }
+    }
+
+    throw new Error('No Ghost API version responded with posts')
   }
 } 
